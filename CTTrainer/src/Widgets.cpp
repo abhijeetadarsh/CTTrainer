@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 //  Widgets.cpp  --  Custom widget implementations
 // ============================================================
 #define IMGUI_DEFINE_MATH_OPERATORS   // enables ImVec2 +, -, *, / operators
@@ -38,7 +38,8 @@ ImRect Widget::Reserve(float w, float h)
 bool Widget::IsHovered(const ImRect& r)
 {
     ImVec2 mp = ImGui::GetIO().MousePos;
-    return r.Contains(mp) && ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
+    return r.Contains(mp) && ImGui::IsWindowHovered(
+        ImGuiHoveredFlags_AnyWindow | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 }
 
 bool Widget::IsClicked(const ImRect& r, int btn)

@@ -29,6 +29,9 @@ static bool        s_is32Bit    = true;    // toggle: 32-bit vs 64-bit target
 // One ValueCell::State per cheat row (index-mapped)
 static std::vector<ValueCell::State> s_cellStates;
 
+// Win32 handle from main.cpp (for drag / minimize)
+extern HWND g_hWnd;
+
 namespace UI {
     void SetStatus(const std::string& m, bool e)
     {
@@ -375,75 +378,189 @@ static void RenderCheatTable(CheatManager& mgr, float availH)
     ImGui::EndChild();
 }
 
-// ── Top bar ───────────────────────────────────────────────────
-static void RenderTopBar(CheatManager& mgr, float w)
+// ── Custom title bar (36 px, full-width, draws in screen space) ─
+static void RenderTitleBar(CheatManager& mgr)
 {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ThemePalette& p = ThemeManager::Get().Palette();
-    ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ThemePalette& p   = ThemeManager::Get().Palette();
+    ImDrawList*         dl  = ImGui::GetWindowDrawList();
+    ImVec2              wp  = ImGui::GetWindowPos();   // always (0,0)
+    float               fw  = ImGui::GetWindowSize().x;
+    const float         H   = 36.f;
 
-    // Title text with accent color
-    dl->AddText(ImVec2(pos.x + 12.f, pos.y + 6.f),
+    // ── Background + bottom accent border ────────────────────
+    dl->AddRectFilled(wp, ImVec2(wp.x + fw, wp.y + H), Anim::ColorU32(p.bgDeep));
+    dl->AddLine(
+        ImVec2(wp.x,      wp.y + H - 1.f),
+        ImVec2(wp.x + fw, wp.y + H - 1.f),
+        Anim::ColorU32(ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.6f)), 1.5f);
+
+    // ── Icon bars + label ─────────────────────────────────────
+    float ix = wp.x + 14.f, iy = wp.y + (H - 10.f) * 0.5f;
+    dl->AddRectFilled(ImVec2(ix,        iy),        ImVec2(ix + 3.f,  iy + 10.f), Anim::ColorU32(p.accent));
+    dl->AddRectFilled(ImVec2(ix + 5.f,  iy + 3.f),  ImVec2(ix + 8.f,  iy + 10.f), Anim::ColorU32(p.accent));
+    dl->AddRectFilled(ImVec2(ix + 10.f, iy),        ImVec2(ix + 13.f, iy + 10.f), Anim::ColorU32(p.accent));
+    float titleEndX = ix + 13.f + 10.f;
+    dl->AddText(ImVec2(titleEndX, wp.y + (H - ImGui::GetTextLineHeight()) * 0.5f),
         Anim::ColorU32(p.accent), "CT TRAINER");
+    titleEndX += ImGui::CalcTextSize("CT TRAINER").x + 10.f;
 
-    // PID status (right)
-    const char* pidTxt = mgr.HProcess() ? "ATTACHED" : "DETACHED";
+    // ── Close [x] button ─────────────────────────────────────
+    const float BW = 36.f;
+    float cx = wp.x + fw - BW;
+    ImGui::SetCursorScreenPos(ImVec2(cx, wp.y));
+    ImGui::InvisibleButton("##wclose", ImVec2(BW, H));
+    bool cHov = ImGui::IsItemHovered(), cCli = ImGui::IsItemClicked();
+    dl->AddRectFilled(ImVec2(cx, wp.y), ImVec2(cx + BW, wp.y + H),
+        cHov ? IM_COL32(210, 30, 30, 230) : IM_COL32(0, 0, 0, 0));
+    { ImVec2 s = ImGui::CalcTextSize("x");
+      dl->AddText(ImVec2(cx + (BW - s.x)*0.5f, wp.y + (H - s.y)*0.5f),
+        cHov ? IM_COL32(255,255,255,255) : Anim::ColorU32(p.textSecondary), "x"); }
+    if (cCli) PostQuitMessage(0);
+
+    // ── Minimize [_] button ───────────────────────────────────
+    float mx = cx - BW;
+    ImGui::SetCursorScreenPos(ImVec2(mx, wp.y));
+    ImGui::InvisibleButton("##wmini", ImVec2(BW, H));
+    bool mHov = ImGui::IsItemHovered(), mCli = ImGui::IsItemClicked();
+    dl->AddRectFilled(ImVec2(mx, wp.y), ImVec2(mx + BW, wp.y + H),
+        mHov ? Anim::ColorU32(ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.22f)) : IM_COL32(0,0,0,0));
+    { ImVec2 s = ImGui::CalcTextSize("_");
+      dl->AddText(ImVec2(mx + (BW - s.x)*0.5f, wp.y + (H - s.y)*0.5f - 2.f),
+        mHov ? Anim::ColorU32(p.accent) : Anim::ColorU32(p.textSecondary), "_"); }
+    if (mCli) ShowWindow(g_hWnd, SW_MINIMIZE);
+
+    // ── PID indicator (left of system buttons) ────────────────
+    float pulse   = (sinf((float)ImGui::GetTime() * 2.f) + 1.f) * 0.5f;
     ImVec4 pidCol = mgr.HProcess() ? p.good : p.bad;
-    // Pulsing dot
-    float pulse = (sinf((float)ImGui::GetTime() * 2.f) + 1.f) * 0.5f;
-    ImU32 dotC = Anim::ColorU32(ImVec4(pidCol.x, pidCol.y, pidCol.z, 0.5f + 0.5f * pulse));
-    float dotX = w - 180.f;
-    dl->AddCircleFilled(ImVec2(dotX, pos.y + 16.f), 4.f, dotC);
     char pidBuf[32];
     if (mgr.HProcess()) snprintf(pidBuf, sizeof(pidBuf), "PID %lu", (unsigned long)mgr.PID());
-    else strncpy_s(pidBuf, sizeof(pidBuf), "NOT ATTACHED", _TRUNCATE);
-    dl->AddText(ImVec2(dotX + 10.f, pos.y + 8.f), Anim::ColorU32(pidCol), pidBuf);
+    else strncpy_s(pidBuf, sizeof(pidBuf), "DETACHED", _TRUNCATE);
+    ImVec2 pidSz  = ImGui::CalcTextSize(pidBuf);
+    float  pidTx  = mx - 12.f - pidSz.x;
+    float  pidDot = pidTx - 12.f;
+    dl->AddCircleFilled(ImVec2(pidDot, wp.y + H * 0.5f),
+        4.f, Anim::ColorU32(ImVec4(pidCol.x, pidCol.y, pidCol.z, 0.5f + 0.5f * pulse)));
+    dl->AddText(ImVec2(pidTx, wp.y + (H - pidSz.y) * 0.5f),
+        Anim::ColorU32(pidCol), pidBuf);
 
-    ImGui::Dummy(ImVec2(w, 30.f));
+    // ── Theme + Log ghost buttons ─────────────────────────────
+    const float GBH = 22.f, GBY = wp.y + (H - GBH) * 0.5f;
+    float logW = 72.f, thW = 120.f;
+    float logX = pidDot - 16.f - logW;
+    float thX  = logX - 8.f - thW;
 
-    // Theme button (ghost) - truncate name to fit button
-    ThemeManager& tm = ThemeManager::Get();
-    const char* fullName = tm.Palette().name;
-    char truncName[20];
-    strncpy_s(truncName, sizeof(truncName), fullName, _TRUNCATE);
-    // If text wider than button, cut it
-    float thBtnW = 138.f;
-    while (strlen(truncName) > 3 &&
-        ImGui::CalcTextSize(truncName).x > thBtnW - 16.f)
-    {
-        truncName[strlen(truncName) - 1] = '\0';
-        // append ".." marker once short enough
-    }
-    ImGui::SetCursorScreenPos(ImVec2(pos.x + w - thBtnW - 4.f, pos.y + 32.f));
-    if (GhostButton::Draw("##thbtn", fullName,
-        ImVec2(thBtnW, 22.f), p.accent,
-        ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.12f), 4.f))
+    ImGui::SetCursorScreenPos(ImVec2(thX, GBY));
+    if (GhostButton::Draw("##thbtn", ThemeManager::Get().Palette().name,
+        ImVec2(thW, GBH), p.accent,
+        ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.12f), 0.f))
         s_showThemePicker = !s_showThemePicker;
 
-    // Debug toggle
-    ImGui::SetCursorScreenPos(ImVec2(pos.x + w - thBtnW - 4.f - 116.f, pos.y + 32.f));
+    ImGui::SetCursorScreenPos(ImVec2(logX, GBY));
     if (GhostButton::Draw("##dbgbtn", s_showDebug ? "Log [x]" : "Log [ ]",
-        ImVec2(112.f, 22.f), p.textSecondary,
-        ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.10f), 4.f))
+        ImVec2(logW, GBH), p.textSecondary,
+        ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.10f), 0.f))
         s_showDebug = !s_showDebug;
 
-    ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + 58.f));
-    ImGui::Dummy(ImVec2(w, 4.f));
-    Divider(0, 8);
+    // ── Drag zone (middle of title bar) ──────────────────────
+    // Uses per-frame SetWindowPos to avoid the SendMessage modal-loop bug.
+    // (SendMessage(WM_NCLBUTTONDOWN) blocks until mouse release and Windows
+    //  consumes WM_LBUTTONUP, leaving ImGui with a permanently-stuck MouseDown
+    //  which breaks every other drag attempt.)
+    static bool  s_dragActive = false;
+    static POINT s_dragOriginCursor = {};
+    static POINT s_dragOriginWin    = {};
+
+    float dragW = thX - wp.x - 8.f;
+    if (dragW > 0.f) {
+        ImGui::SetCursorScreenPos(ImVec2(wp.x, wp.y));
+        ImGui::InvisibleButton("##wdrag", ImVec2(dragW, H));
+
+        if (ImGui::IsItemActivated()) {
+            // Capture starting positions on first press
+            GetCursorPos(&s_dragOriginCursor);
+            RECT wr = {};
+            GetWindowRect(g_hWnd, &wr);
+            s_dragOriginWin = { wr.left, wr.top };
+            s_dragActive = true;
+        }
+    }
+
+    // Move window every frame while held (even if cursor leaves the zone)
+    if (s_dragActive) {
+        if (ImGui::IsMouseDown(0)) {
+            POINT cur = {};
+            GetCursorPos(&cur);
+            SetWindowPos(g_hWnd, nullptr,
+                s_dragOriginWin.x + (cur.x - s_dragOriginCursor.x),
+                s_dragOriginWin.y + (cur.y - s_dragOriginCursor.y),
+                0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        } else {
+            s_dragActive = false;  // mouse released – end drag
+        }
+    }
+
+    // Advance ImGui layout cursor past the title bar
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 12.f, wp.y + H));
+    ImGui::Dummy(ImVec2(fw - 24.f, 0.f));
+    Divider(6, 6);
 }
 
-// ── Toolbar row (attach + load CT) ────────────────────────────
+
+// ── Arch toggle pill button  (32-bit  ↔  64-bit) ─────────────
+static void DrawArchToggle(float x, float y)
+{
+    const ThemePalette& p = ThemeManager::Get().Palette();
+    ImDrawList* dl        = ImGui::GetWindowDrawList();
+
+    const float BW = 96.f, BH = 28.f, R = BH * 0.5f;
+    ImVec2      tl(x, y), br(x + BW, y + BH);
+
+    // Draw pill background
+    ImVec4 bgCol = s_is32Bit
+        ? ImVec4(p.btnMasterOff.x, p.btnMasterOff.y, p.btnMasterOff.z, 0.85f)
+        : ImVec4(p.btnAction.x,    p.btnAction.y,    p.btnAction.z,    0.85f);
+    dl->AddRectFilled(tl, br, Anim::ColorU32(bgCol), R);
+
+    // Glowing border
+    ImVec4 borderCol = s_is32Bit ? p.btnMasterOffHov : p.accent;
+    dl->AddRect(tl, br, Anim::ColorU32(borderCol), R, 0, 1.5f);
+
+    // Sliding thumb knob
+    float thumbPad = 3.f, thumbD = BH - thumbPad * 2.f;
+    float thumbX   = s_is32Bit ? tl.x + thumbPad
+                               : br.x - thumbPad - thumbD;
+    dl->AddCircleFilled(
+        ImVec2(thumbX + thumbD * 0.5f, y + BH * 0.5f),
+        thumbD * 0.5f,
+        Anim::ColorU32(ImVec4(1.f, 1.f, 1.f, 0.92f)));
+
+    // Label text
+    const char* lbl = s_is32Bit ? "32-bit" : "64-bit";
+    ImVec2 ts = ImGui::CalcTextSize(lbl);
+    float  tx = s_is32Bit ? tl.x + thumbD + thumbPad + 6.f
+                          : tl.x + 8.f;
+    float  ty = y + (BH - ts.y) * 0.5f;
+    dl->AddText(ImVec2(tx, ty), Anim::ColorU32(p.textPrimary), lbl);
+
+    // Invisible clickable overlay
+    ImGui::SetCursorScreenPos(tl);
+    ImGui::InvisibleButton("##arch", ImVec2(BW, BH));
+    if (ImGui::IsItemClicked())
+        s_is32Bit = !s_is32Bit;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Toggle process architecture\n32-bit = older games  |  64-bit = modern games");
+}
+
+// ── Toolbar: two-row layout ────────────────────────────────────
 static void RenderToolbar(CheatManager& mgr)
 {
     const ThemePalette& p = ThemeManager::Get().Palette();
-    float avail = ImGui::GetContentRegionAvail().x;
 
-    // Process name input
+    // ── ROW 1 : Process  |  Attach  |  Arch toggle ───────────
     TextInput::Draw("##proc", s_processName, sizeof(s_processName),
         160.f, "Process name...", p.textSecondary);
     ImGui::SameLine(0, 8);
 
-    // Attach button
     if (GlowButton::Draw("##att", "Attach", ImVec2(70, 28),
         p.btnAction, p.btnActionHov, p.accent))
     {
@@ -463,34 +580,47 @@ static void RenderToolbar(CheatManager& mgr)
             }
         }
     }
-    // 32-bit / 64-bit toggle
-    ImGui::SameLine(0, 8);
-    ImGui::PushStyleColor(ImGuiCol_Text, p.textSecondary);
-    ImGui::Checkbox("32-bit", &s_is32Bit);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Enable for 32-bit processes (e.g. older games)\nDisable for 64-bit processes (e.g. modern games)");
-    ImGui::PopStyleColor();
-    ImGui::SameLine(0, 16);
 
-    // CT path input
+    // Arch toggle pill
+    ImGui::SameLine(0, 10);
+    {
+        ImVec2 cur = ImGui::GetCursorScreenPos();
+        DrawArchToggle(cur.x, cur.y);
+        // Advance cursor so ImGui layout knows we used space
+        ImGui::SetCursorScreenPos(ImVec2(cur.x + 96.f + 10.f, cur.y));
+        ImGui::Dummy(ImVec2(0, 28));
+    }
+
+    // ── Thin separator between rows ───────────────────────────
+    ImGui::Dummy(ImVec2(0, 4));
+
+    // ── ROW 2 : CT path  |  Browse  |  Load CT ───────────────
+    {
+        // Small muted "CT File:" label
+        ImDrawList* dl  = ImGui::GetWindowDrawList();
+        ImVec2      lp  = ImGui::GetCursorScreenPos();
+        const char* lbl = "CT File:";
+        ImVec2      lsz = ImGui::CalcTextSize(lbl);
+        dl->AddText(ImVec2(lp.x, lp.y + (28.f - lsz.y) * 0.5f),
+            Anim::ColorU32(p.textSecondary), lbl);
+        ImGui::SetCursorScreenPos(ImVec2(lp.x + lsz.x + 8.f, lp.y));
+    }
+
     float browseW = 72.f;
     float loadCtW = 76.f;
-    float attachW = 70.f;
-    float procW = 160.f;
-    float gaps = 8.f + 16.f + 6.f + 6.f;
-    float ctPathW = avail - procW - attachW - browseW - loadCtW - gaps;
+    // avail is measured from cursor (already past the "CT File:" label)
+    float avail   = ImGui::GetContentRegionAvail().x;
+    float ctPathW = avail - browseW - loadCtW - 6.f - 6.f;
+
     TextInput::Draw("##ctp", s_ctFilePath, sizeof(s_ctFilePath),
-        ctPathW,
-        "Path to .CT file...", p.textSecondary);
+        ctPathW, "Path to .CT file...", p.textSecondary);
     ImGui::SameLine(0, 6);
 
-    // Browse button
     if (GhostButton::Draw("##br", "Browse", ImVec2(browseW, 28),
         p.accent, ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.12f), 4.f))
         BrowseCT(s_ctFilePath, sizeof(s_ctFilePath));
     ImGui::SameLine(0, 6);
 
-    // Load CT button
     if (GlowButton::Draw("##lct", "Load CT", ImVec2(loadCtW, 28),
         p.btnAction, p.btnActionHov, p.accent))
     {
@@ -553,7 +683,7 @@ void UI::Render(CheatManager& mgr)
         ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleColor(2); ImGui::PopStyleVar(2);
 
-    RenderTopBar(mgr, w - 24.f);
+    RenderTitleBar(mgr);
     RenderToolbar(mgr);
     Divider(8, 8);
     RenderMasterToggle(mgr);

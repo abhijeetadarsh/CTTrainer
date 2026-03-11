@@ -14,6 +14,8 @@
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <Windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 #include "../include/CheatManager.h"
 #include "../include/UI.h"
 #include "../include/Theme.h"
@@ -26,7 +28,7 @@ static ID3D11Device* g_device = nullptr;
 static ID3D11DeviceContext* g_ctx = nullptr;
 static IDXGISwapChain* g_chain = nullptr;
 static ID3D11RenderTargetView* g_rtv = nullptr;
-static HWND                     g_hWnd = nullptr;
+HWND                            g_hWnd = nullptr;
 
 // ── D3D helpers ──────────────────────────────────────────────
 static void CreateRenderTarget()
@@ -94,6 +96,11 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_SYSCOMMAND:
         if ((wParam & 0xfff0) == SC_KEYMENU) return 0;
         break;
+    case WM_MOUSEACTIVATE:
+        // Activate window but DON'T eat the click.
+        // Without this, WS_POPUP windows default to MA_ACTIVATEANDEAT,
+        // which causes the first click to only focus the window (not fire buttons).
+        return MA_ACTIVATE;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -110,7 +117,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     RegisterClassExW(&wc);
 
     g_hWnd = CreateWindowExW(0, wc.lpszClassName, L"CT Trainer  v1.0",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_SIZEBOX,
+        WS_POPUP,
         100, 100, 720, 600, nullptr, nullptr, hInstance, nullptr);
 
     if (!CreateDeviceD3D(g_hWnd))
@@ -122,6 +129,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
     ShowWindow(g_hWnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hWnd);
+
+    // Force no corner rounding on Windows 11
+    DWM_WINDOW_CORNER_PREFERENCE noRound = DWMWCP_DONOTROUND;
+    DwmSetWindowAttribute(g_hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &noRound, sizeof(noRound));
 
     // ── ImGui setup ───────────────────────────────────────
     IMGUI_CHECKVERSION();

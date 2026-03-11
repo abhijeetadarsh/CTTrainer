@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 //  Theme.cpp  --  5 handcrafted ImGui themes
 //
 //  MIDNIGHT SYNTHWAVE  -- deep navy + electric magenta/cyan
@@ -45,8 +45,8 @@ ThemeManager::ThemeManager()
         p.tableHeader = C(20, 12, 45);
         p.tableRowEven = C(10, 10, 22);
         p.tableRowOdd = C(14, 12, 28);
-        p.windowRounding = 8.f;
-        p.frameRounding = 5.f;
+        p.windowRounding = 0.f;
+        p.frameRounding = 0.f;
         p.itemSpacingY = 6.f;
         m_palettes.push_back(p);
     }
@@ -79,8 +79,8 @@ ThemeManager::ThemeManager()
         p.tableHeader = C(18, 14, 4);
         p.tableRowEven = C(8, 8, 8);
         p.tableRowOdd = C(13, 11, 5);
-        p.windowRounding = 4.f;
-        p.frameRounding = 3.f;
+        p.windowRounding = 0.f;
+        p.frameRounding = 0.f;
         p.itemSpacingY = 5.f;
         m_palettes.push_back(p);
     }
@@ -113,8 +113,8 @@ ThemeManager::ThemeManager()
         p.tableHeader = C(200, 210, 230);
         p.tableRowEven = C(230, 235, 245);
         p.tableRowOdd = C(220, 227, 240);
-        p.windowRounding = 10.f;
-        p.frameRounding = 6.f;
+        p.windowRounding = 0.f;
+        p.frameRounding = 0.f;
         p.itemSpacingY = 6.f;
         m_palettes.push_back(p);
     }
@@ -147,8 +147,8 @@ ThemeManager::ThemeManager()
         p.tableHeader = C(25, 28, 18);
         p.tableRowEven = C(18, 20, 14);
         p.tableRowOdd = C(22, 25, 17);
-        p.windowRounding = 3.f;
-        p.frameRounding = 2.f;
+        p.windowRounding = 0.f;
+        p.frameRounding = 0.f;
         p.itemSpacingY = 5.f;
         m_palettes.push_back(p);
     }
@@ -181,8 +181,8 @@ ThemeManager::ThemeManager()
         p.tableHeader = C(10, 22, 10);
         p.tableRowEven = C(13, 13, 17);
         p.tableRowOdd = C(16, 18, 16);
-        p.windowRounding = 6.f;
-        p.frameRounding = 4.f;
+        p.windowRounding = 0.f;
+        p.frameRounding = 0.f;
         p.itemSpacingY = 6.f;
         m_palettes.push_back(p);
     }
