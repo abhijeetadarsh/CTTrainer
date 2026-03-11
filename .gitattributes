@@ -1,0 +1,38 @@
+# Auto-detect text vs binary
+* text=auto
+
+# C++ source — always LF in repo, checkout as CRLF on Windows
+*.cpp   text eol=crlf
+*.c     text eol=crlf
+*.h     text eol=crlf
+*.hpp   text eol=crlf
+*.inl   text eol=crlf
+
+# Project / solution files
+*.sln   text eol=crlf
+*.vcxproj       text eol=crlf
+*.vcxproj.filters text eol=crlf
+*.props text eol=crlf
+*.targets text eol=crlf
+
+# Markdown / text docs
+*.md    text eol=lf
+*.txt   text eol=lf
+
+# Config / data files
+*.CT    text eol=lf
+*.json  text eol=lf
+*.xml   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+
+# Binary files — no line-ending conversion, no diff
+*.exe   binary
+*.dll   binary
+*.lib   binary
+*.obj   binary
+*.pdb   binary
+*.ilk   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary

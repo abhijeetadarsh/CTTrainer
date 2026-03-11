@@ -1,0 +1,90 @@
+
+# ========================
+# Visual Studio
+# ========================
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docview
+
+# ========================
+# Build Output
+# ========================
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.iobj
+*.ipdb
+
+# Object files
+*.obj
+*.o
+
+# Log files
+*.log
+*.tlog
+
+# Build recipe / intermediate files
+*.recipe
+*.FileListAbsolute.txt
+*.Build.CppClean.log
+vc*.pdb
+vc*.idb
+
+# ========================
+# CMake (if ever used)
+# ========================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# ========================
+# Windows
+# ========================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ========================
+# Editor / IDE misc
+# ========================
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# ========================
+# Packaging & installers
+# ========================
+*.msi
+*.msix
+*.msm
+*.msp
+*.nupkg
+*.snupkg
