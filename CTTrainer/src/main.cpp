@@ -4,7 +4,7 @@
 //
 //  BUILD REQUIREMENTS (Visual Studio):
 //  • Add imgui folder to: C/C++ > General > Additional Include Dirs
-//  • Linker > Input: d3d11.lib  dxgi.lib
+//  • Linker > Input: d3d11.lib  dxgi.lib  dwmapi.lib
 //  • Linker > System > SubSystem: Windows
 //  • Run as Administrator
 // ============================================================
@@ -23,12 +23,12 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 
-// ── D3D globals ──────────────────────────────────────────────
-static ID3D11Device* g_device = nullptr;
-static ID3D11DeviceContext* g_ctx = nullptr;
-static IDXGISwapChain* g_chain = nullptr;
+// ── D3D globals (non-static so UI.cpp can reach them) ────────
+ID3D11Device*            g_device = nullptr;
+ID3D11DeviceContext*     g_ctx    = nullptr;
+static IDXGISwapChain*   g_chain  = nullptr;
 static ID3D11RenderTargetView* g_rtv = nullptr;
-HWND                            g_hWnd = nullptr;
+HWND                     g_hWnd   = nullptr;
 
 // ── D3D helpers ──────────────────────────────────────────────
 static void CreateRenderTarget()
@@ -37,12 +37,10 @@ static void CreateRenderTarget()
     g_chain->GetBuffer(0, IID_PPV_ARGS(&bb));
     if (bb) { g_device->CreateRenderTargetView(bb, nullptr, &g_rtv); bb->Release(); }
 }
-
 static void CleanupRenderTarget()
 {
     if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; }
 }
-
 static bool CreateDeviceD3D(HWND hWnd)
 {
     DXGI_SWAP_CHAIN_DESC sd = {};
@@ -66,13 +64,42 @@ static bool CreateDeviceD3D(HWND hWnd)
     CreateRenderTarget();
     return true;
 }
-
 static void CleanupDeviceD3D()
 {
     CleanupRenderTarget();
-    if (g_chain) { g_chain->Release(); g_chain = nullptr; }
-    if (g_ctx) { g_ctx->Release();   g_ctx = nullptr; }
+    if (g_chain)  { g_chain->Release();  g_chain  = nullptr; }
+    if (g_ctx)    { g_ctx->Release();    g_ctx    = nullptr; }
     if (g_device) { g_device->Release(); g_device = nullptr; }
+}
+
+// ── Window-effects API (called by UI.cpp) ────────────────────
+
+void SetWindowAlpha(int alpha) // 0 = fully transparent, 255 = opaque
+{
+    SetLayeredWindowAttributes(g_hWnd, 0, (BYTE)alpha, LWA_ALPHA);
+}
+
+void SetWindowBlur(bool enable)
+{
+    DWM_BLURBEHIND bb = {};
+    bb.dwFlags = DWM_BB_ENABLE;
+    bb.fEnable = enable ? TRUE : FALSE;
+    DwmEnableBlurBehindWindow(g_hWnd, &bb);
+}
+
+void SetWindowAcrylic(bool enable)
+{
+    // DWMWA_SYSTEMBACKDROP_TYPE = 38 (Win11 SDK)
+    // DWMSBT_NONE = 1, DWMSBT_ACRYLIC = 3
+    DWORD val = enable ? 3 : 1;
+    DwmSetWindowAttribute(g_hWnd, 38, &val, sizeof(val));
+}
+
+// ── Font atlas rebuild (called by UI.cpp after modifying Fonts) ─
+void RebuildFontAtlas()
+{
+    ImGui_ImplDX11_InvalidateDeviceObjects();
+    ImGui_ImplDX11_CreateDeviceObjects();
 }
 
 // ── WndProc ──────────────────────────────────────────────────
@@ -97,15 +124,42 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if ((wParam & 0xfff0) == SC_KEYMENU) return 0;
         break;
     case WM_MOUSEACTIVATE:
-        // Activate window but DON'T eat the click.
-        // Without this, WS_POPUP windows default to MA_ACTIVATEANDEAT,
-        // which causes the first click to only focus the window (not fire buttons).
-        return MA_ACTIVATE;
+        return MA_ACTIVATE; // pass click through on activation
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+// ── Font loading helper ───────────────────────────────────────
+// Returns the index of the added font, or -1 on failure.
+// Fonts are stored in ImGui's atlas; call RebuildFontAtlas() after.
+struct FontDef { const char* label; const char* path; float size; };
+
+static const FontDef k_Fonts[] = {
+    { "Segoe UI",      "C:\\Windows\\Fonts\\segoeui.ttf",      15.f },
+    { "Consolas",      "C:\\Windows\\Fonts\\consola.ttf",       14.f },
+    { "Cascadia Code", "C:\\Windows\\Fonts\\CascadiaCode.ttf",  14.f },
+    { "Arial",         "C:\\Windows\\Fonts\\arial.ttf",         15.f },
+};
+static const int k_FontCount = (int)(sizeof(k_Fonts) / sizeof(k_Fonts[0]));
+
+// Loaded ImFont* pointers (null = unavailable on this system)
+ImFont* g_Fonts[4] = {};
+
+static void LoadSystemFonts(ImGuiIO& io)
+{
+    for (int i = 0; i < k_FontCount; ++i)
+    {
+        if (GetFileAttributesA(k_Fonts[i].path) != INVALID_FILE_ATTRIBUTES)
+            g_Fonts[i] = io.Fonts->AddFontFromFileTTF(k_Fonts[i].path, k_Fonts[i].size);
+    }
+    // Fallback: default ProggyClean if nothing loaded
+    bool anyLoaded = false;
+    for (int i = 0; i < k_FontCount; ++i) if (g_Fonts[i]) { anyLoaded = true; break; }
+    if (!anyLoaded)
+        io.Fonts->AddFontDefault();
 }
 
 // ── WinMain ──────────────────────────────────────────────────
@@ -116,9 +170,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
                        L"CTTrainer", nullptr };
     RegisterClassExW(&wc);
 
-    g_hWnd = CreateWindowExW(0, wc.lpszClassName, L"CT Trainer  v1.0",
+    // WS_EX_LAYERED enables SetLayeredWindowAttributes (transparency)
+    g_hWnd = CreateWindowExW(WS_EX_LAYERED, wc.lpszClassName, L"CT Trainer  v1.0",
         WS_POPUP,
         100, 100, 720, 600, nullptr, nullptr, hInstance, nullptr);
+
+    // Start fully opaque
+    SetLayeredWindowAttributes(g_hWnd, 0, 255, LWA_ALPHA);
 
     if (!CreateDeviceD3D(g_hWnd))
     {
@@ -130,7 +188,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     ShowWindow(g_hWnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hWnd);
 
-    // Force no corner rounding on Windows 11
+    // Force sharp corners (Windows 11)
     DWM_WINDOW_CORNER_PREFERENCE noRound = DWMWCP_DONOTROUND;
     DwmSetWindowAttribute(g_hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &noRound, sizeof(noRound));
 
@@ -140,7 +198,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
 
-    // Theme manager handles all style setup
+    // Load system fonts BEFORE backend init so atlas is built once
+    LoadSystemFonts(io);
+
+    // Apply first available font as default
+    for (int i = 0; i < k_FontCount; ++i)
+    {
+        if (g_Fonts[i]) { io.FontDefault = g_Fonts[i]; break; }
+    }
+
     ThemeManager::Get().ApplyCurrent();
 
     ImGui_ImplWin32_Init(g_hWnd);
@@ -150,7 +216,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     CheatManager mgr;
 
     // ── Message loop ──────────────────────────────────────
-    const float BG[4] = { 0.08f, 0.09f, 0.10f, 1.0f };
+    const float BG[4] = { 0.f, 0.f, 0.f, 0.f }; // transparent clear (DWM handles bg)
     MSG msg = {};
     while (msg.message != WM_QUIT)
     {

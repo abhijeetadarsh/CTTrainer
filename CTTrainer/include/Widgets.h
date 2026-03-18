@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ============================================================
 //  Widgets.h  --  Custom ImGui widget library
 // ...

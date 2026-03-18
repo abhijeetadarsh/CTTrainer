@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // ============================================================
 //  Theme.h  --  ImGui Theme Manager
 //  5 handcrafted themes, switchable at runtime

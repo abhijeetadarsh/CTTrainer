@@ -21,16 +21,29 @@ static std::string s_statusMsg = "Load a .CT file and attach to begin.";
 static bool        s_statusError = false;
 static char        s_processName[64] = "";
 static char        s_ctFilePath[256] = "";
-static bool        s_showDebug = false;
-static bool        s_showThemePicker = false;
-static bool        s_autoScroll = true;
-static bool        s_is32Bit    = true;    // toggle: 32-bit vs 64-bit target
+static bool        s_showDebug    = false;
+static bool        s_showSettings = false;
+static bool        s_autoScroll   = true;
+static bool        s_is32Bit      = true;
+static int         s_alpha        = 255;   // window opacity 0-255
+static bool        s_blurEnabled  = false;
+static bool        s_acrylicEnabled = false;
+static int         s_fontIndex    = 0;     // which loaded font is active
 
 // One ValueCell::State per cheat row (index-mapped)
 static std::vector<ValueCell::State> s_cellStates;
 
-// Win32 handle from main.cpp (for drag / minimize)
+// From main.cpp
 extern HWND g_hWnd;
+// Font array and count loaded in main.cpp
+extern ImFont* g_Fonts[4];
+static const int k_UIFontCount = 4;
+static const char* k_UIFontNames[] = { "Segoe UI", "Consolas", "Cascadia Code", "Arial" };
+// Window effect helpers from main.cpp
+extern void SetWindowAlpha(int);
+extern void SetWindowBlur(bool);
+extern void SetWindowAcrylic(bool);
+extern void RebuildFontAtlas();
 
 namespace UI {
     void SetStatus(const std::string& m, bool e)
@@ -94,49 +107,155 @@ static void Divider(float padTop = 6.f, float padBot = 6.f)
     ImGui::Dummy(ImVec2(0, padBot));
 }
 
-// ── Theme picker dropdown ──────────────────────────────────────
-static void RenderThemePicker()
+// ── Settings panel ────────────────────────────────────────────
+static void RenderSettingsPanel(float panelY, float panelH, float w)
 {
-    if (!s_showThemePicker) return;
-    ImGuiIO& io = ImGui::GetIO();
+    if (!s_showSettings) return;
+    const ThemePalette& p = ThemeManager::Get().Palette();
     ThemeManager& tm = ThemeManager::Get();
-    const auto& all = tm.All();
-    const ThemePalette& p = tm.Palette();
+    const auto& allThemes = tm.All();
 
-    float pw = 210.f, ph = (float)(all.size() * 38 + 52);
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - pw - 6, 56));
-    ImGui::SetNextWindowSize(ImVec2(pw, ph));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, p.bgAlt);
-    ImGui::PushStyleColor(ImGuiCol_Border, p.accent);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, p.windowRounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
-    ImGui::Begin("##tp", nullptr,
+    ImGui::SetNextWindowPos(ImVec2(0, panelY));
+    ImGui::SetNextWindowSize(ImVec2(w, panelH));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, p.bg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.f, 16.f));
+    ImGui::Begin("##settings", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav |
-        ImGuiWindowFlags_NoScrollbar);
-    ImGui::PopStyleColor(2); ImGui::PopStyleVar(2);
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::PopStyleColor(); ImGui::PopStyleVar(2);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    // Header
-    ImVec2 hp = ImGui::GetCursorScreenPos();
-    dl->AddText(ImVec2(hp.x + 10, hp.y + 4), Anim::ColorU32(p.accent), "THEME");
-    ImGui::Dummy(ImVec2(0, 22)); Divider(0, 6);
 
-    for (int i = 0; i < (int)all.size(); ++i)
+    // ─── Helper: section header ───────────────────────────────
+    auto SectionHdr = [&](const char* title) {
+        ImVec2 cp = ImGui::GetCursorScreenPos();
+        dl->AddText(cp, Anim::ColorU32(p.accent), title);
+        ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight()));
+        Divider(2, 8);
+    };
+
+    // ─── THEME ────────────────────────────────────────────────
+    SectionHdr("THEME");
     {
-        bool sel = (tm.Current() == i);
-        // Each theme entry is a GhostButton styled row
-        ImVec4 bc = sel ? p.accent
-            : ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.2f);
-        ImVec4 hf = ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.12f);
-        char lid[32]; snprintf(lid, sizeof(lid), "##th%d", i);
-        std::string lbl = std::string(sel ? " > " : "   ") + all[i].name;
-        if (GhostButton::Draw(lid, lbl.c_str(), ImVec2(pw - 16, 28), bc, hf, 4.f))
+        float btnW = (w - 40.f - (float)(allThemes.size() - 1) * 8.f) / (float)allThemes.size();
+        float btnH = 32.f;
+        for (int i = 0; i < (int)allThemes.size(); ++i)
         {
-            tm.Apply(i); s_showThemePicker = false;
+            if (i > 0) ImGui::SameLine(0, 8);
+            bool sel = (tm.Current() == i);
+            ImVec4 bc  = sel ? p.accent : ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.35f);
+            ImVec4 hf  = ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.18f);
+            char lid[16]; snprintf(lid, sizeof(lid), "##ts%d", i);
+            if (GhostButton::Draw(lid, allThemes[i].name, ImVec2(btnW, btnH), bc, hf, 0.f))
+                tm.Apply(i);
+            // Active indicator underline
+            if (sel) {
+                ImVec2 sp = ImGui::GetItemRectMin();
+                ImVec2 ep = ImGui::GetItemRectMax();
+                dl->AddLine(ImVec2(sp.x, ep.y - 2.f), ImVec2(ep.x, ep.y - 2.f),
+                    Anim::ColorU32(p.accent), 2.f);
+            }
         }
-        ImGui::Dummy(ImVec2(0, 2));
     }
+    ImGui::Dummy(ImVec2(0, 12));
+
+    // ─── FONT ─────────────────────────────────────────────────
+    SectionHdr("FONT");
+    {
+        float btnW = (w - 40.f - 3.f * 8.f) / 4.f;
+        for (int i = 0; i < k_UIFontCount; ++i)
+        {
+            if (i > 0) ImGui::SameLine(0, 8);
+            bool avail = (g_Fonts[i] != nullptr);
+            bool sel   = (s_fontIndex == i && avail);
+            ImVec4 bc  = sel   ? p.accent :
+                         avail ? ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.30f)
+                               : ImVec4(p.textDisabled.x, p.textDisabled.y, p.textDisabled.z, 0.20f);
+            ImVec4 hf  = avail ? ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.15f)
+                               : ImVec4(0,0,0,0);
+            char lid[16]; snprintf(lid, sizeof(lid), "##fn%d", i);
+            if (GhostButton::Draw(lid, k_UIFontNames[i], ImVec2(btnW, 32.f), bc, hf, 0.f)
+                && avail && i != s_fontIndex)
+            {
+                s_fontIndex = i;
+                ImGui::GetIO().FontDefault = g_Fonts[i];
+                RebuildFontAtlas();
+            }
+            if (sel) {
+                ImVec2 sp = ImGui::GetItemRectMin();
+                ImVec2 ep = ImGui::GetItemRectMax();
+                dl->AddLine(ImVec2(sp.x, ep.y - 2.f), ImVec2(ep.x, ep.y - 2.f),
+                    Anim::ColorU32(p.accent), 2.f);
+            }
+        }
+    }
+    ImGui::Dummy(ImVec2(0, 12));
+
+    // ─── OPACITY ──────────────────────────────────────────────
+    SectionHdr("OPACITY");
+    {
+        // Slider 77 (30%) to 255 (100%)
+        int alpha = s_alpha;
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab,       p.accent);
+        ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, p.accentHover);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg,          p.inputBg);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,   p.accentDim);
+        ImGui::SetNextItemWidth(w - 40.f - 60.f);
+        if (ImGui::SliderInt("##opacity", &alpha, 77, 255, ""))
+        {
+            s_alpha = alpha;
+            SetWindowAlpha(s_alpha);
+        }
+        ImGui::PopStyleColor(4);
+        ImGui::SameLine(0, 12);
+        char pct[16]; snprintf(pct, sizeof(pct), "%d%%", (int)((alpha / 255.f) * 100.f));
+        ImVec2 pp = ImGui::GetCursorScreenPos();
+        dl->AddText(ImVec2(pp.x, pp.y + 3.f), Anim::ColorU32(p.textSecondary), pct);
+        ImGui::Dummy(ImVec2(0, 22));
+    }
+    ImGui::Dummy(ImVec2(0, 4));
+
+    // ─── EFFECTS ──────────────────────────────────────────────
+    SectionHdr("WINDOW EFFECTS");
+    {
+        float bw = 130.f, bh = 32.f;
+        // Blur toggle
+        ImVec4 blurBc = s_blurEnabled
+            ? p.accent : ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.32f);
+        if (GhostButton::Draw("##blurtgl",
+            s_blurEnabled ? "Blur  ON" : "Blur  OFF",
+            ImVec2(bw, bh), blurBc,
+            ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.15f), 0.f))
+        {
+            s_blurEnabled = !s_blurEnabled;
+            if (s_blurEnabled) { s_acrylicEnabled = false; SetWindowAcrylic(false); }
+            SetWindowBlur(s_blurEnabled);
+        }
+        ImGui::SameLine(0, 8);
+        // Acrylic toggle
+        ImVec4 acrBc = s_acrylicEnabled
+            ? p.accent : ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.32f);
+        if (GhostButton::Draw("##acrytgl",
+            s_acrylicEnabled ? "Acrylic  ON" : "Acrylic  OFF",
+            ImVec2(bw + 20.f, bh), acrBc,
+            ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.15f), 0.f))
+        {
+            s_acrylicEnabled = !s_acrylicEnabled;
+            if (s_acrylicEnabled) { s_blurEnabled = false; SetWindowBlur(false); }
+            SetWindowAcrylic(s_acrylicEnabled);
+        }
+
+        if (s_blurEnabled || s_acrylicEnabled) {
+            ImGui::Dummy(ImVec2(0, 6));
+            ImVec2 cp = ImGui::GetCursorScreenPos();
+            dl->AddText(cp, Anim::ColorU32(p.warn),
+                "Tip: lower Opacity to see the effect behind the window.");
+            ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight()));
+        }
+    }
+
     ImGui::End();
 }
 
@@ -443,17 +562,22 @@ static void RenderTitleBar(CheatManager& mgr)
     dl->AddText(ImVec2(pidTx, wp.y + (H - pidSz.y) * 0.5f),
         Anim::ColorU32(pidCol), pidBuf);
 
-    // ── Theme + Log ghost buttons ─────────────────────────────
+    // ── Settings + Log ghost buttons ─────────────────────────────
     const float GBH = 22.f, GBY = wp.y + (H - GBH) * 0.5f;
-    float logW = 72.f, thW = 120.f;
+    float logW = 72.f, thW = 90.f;
     float logX = pidDot - 16.f - logW;
     float thX  = logX - 8.f - thW;
 
     ImGui::SetCursorScreenPos(ImVec2(thX, GBY));
-    if (GhostButton::Draw("##thbtn", ThemeManager::Get().Palette().name,
-        ImVec2(thW, GBH), p.accent,
-        ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.12f), 0.f))
-        s_showThemePicker = !s_showThemePicker;
+    {
+        ImVec4 bc = s_showSettings
+            ? p.accent
+            : ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.35f);
+        if (GhostButton::Draw("##setbtn", s_showSettings ? "Settings [x]" : "Settings",
+            ImVec2(thW, GBH), bc,
+            ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.12f), 0.f))
+            s_showSettings = !s_showSettings;
+    }
 
     ImGui::SetCursorScreenPos(ImVec2(logX, GBY));
     if (GhostButton::Draw("##dbgbtn", s_showDebug ? "Log [x]" : "Log [ ]",
@@ -667,10 +791,11 @@ void UI::Render(CheatManager& mgr)
     const ThemePalette& p = ThemeManager::Get().Palette();
 
     float debugH = s_showDebug ? 228.f : 0.f;
-    float mainH = io.DisplaySize.y - debugH - 26.f;
-    float w = io.DisplaySize.x;
+    float mainH  = io.DisplaySize.y - debugH - 26.f;
+    float w      = io.DisplaySize.x;
+    const float TITLE_H = 56.f; // title bar (36) + divider (~20)
 
-    // -- Main window (transparent-ish frame for full custom draw) --
+    // -- Main window --
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(w, mainH));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, p.bg);
@@ -684,31 +809,36 @@ void UI::Render(CheatManager& mgr)
     ImGui::PopStyleColor(2); ImGui::PopStyleVar(2);
 
     RenderTitleBar(mgr);
-    RenderToolbar(mgr);
-    Divider(8, 8);
-    RenderMasterToggle(mgr);
 
-    if (mgr.Count() > 0)
+    if (!s_showSettings)
     {
-        ImGui::Spacing();
-        float tableH = mainH - ImGui::GetCursorPosY() - 8.f;
-        RenderCheatTable(mgr, tableH);
-    }
-    else
-    {
-        ImGui::Dummy(ImVec2(0, 40));
-        const char* hint = "Load a .CT file to see entries.";
-        float hw = ImGui::CalcTextSize(hint).x;
-        ImGui::SetCursorPosX((w - hw) * 0.5f);
-        ImGui::GetWindowDrawList()->AddText(
-            ImGui::GetCursorScreenPos(),
-            Anim::ColorU32(p.textDisabled), hint);
-        ImGui::Dummy(ImVec2(0, 20));
+        RenderToolbar(mgr);
+        Divider(8, 8);
+        RenderMasterToggle(mgr);
+
+        if (mgr.Count() > 0)
+        {
+            ImGui::Spacing();
+            float tableH = mainH - ImGui::GetCursorPosY() - 8.f;
+            RenderCheatTable(mgr, tableH);
+        }
+        else
+        {
+            ImGui::Dummy(ImVec2(0, 40));
+            const char* hint = "Load a .CT file to see entries.";
+            float hw = ImGui::CalcTextSize(hint).x;
+            ImGui::SetCursorPosX((w - hw) * 0.5f);
+            ImGui::GetWindowDrawList()->AddText(
+                ImGui::GetCursorScreenPos(),
+                Anim::ColorU32(p.textDisabled), hint);
+            ImGui::Dummy(ImVec2(0, 20));
+        }
     }
 
     ImGui::End();
 
-    RenderThemePicker();
+    // Settings panel sits below the title bar as a separate overlay
+    RenderSettingsPanel(TITLE_H, mainH - TITLE_H, w);
     RenderDebugPanel();
     StatusBar::Draw(io.DisplaySize.y - 26.f, w, 26.f,
         s_statusMsg.c_str(), s_statusError);
