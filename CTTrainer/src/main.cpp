@@ -173,7 +173,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     // WS_EX_LAYERED enables SetLayeredWindowAttributes (transparency)
     g_hWnd = CreateWindowExW(WS_EX_LAYERED, wc.lpszClassName, L"CT Trainer  v1.0",
         WS_POPUP,
-        100, 100, 720, 600, nullptr, nullptr, hInstance, nullptr);
+        100, 100, 760, 620, nullptr, nullptr, hInstance, nullptr);
 
     // Start fully opaque
     SetLayeredWindowAttributes(g_hWnd, 0, 255, LWA_ALPHA);
