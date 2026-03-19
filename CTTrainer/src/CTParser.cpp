@@ -1,8 +1,9 @@
 ﻿// ============================================================
 //  CTParser.cpp
 // ============================================================
-#include "../include/CTParser.h"
-#include "../include/Logger.h"
+#include "CTParser.h"
+#include "Logger.h"
+
 #include <fstream>
 #include <sstream>
 #include <algorithm>

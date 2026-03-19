@@ -1,8 +1,9 @@
 // ============================================================
 //  CheatManager.cpp  –  Part of CTTrainer
 // ============================================================
-#include "../include/CheatManager.h"
-#include "../include/Logger.h"
+#include "CheatManager.h"
+#include "Logger.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>

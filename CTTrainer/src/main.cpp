@@ -1,5 +1,5 @@
 // ============================================================
-//  main.cpp  –  CTTrainer Entry Point
+//  main.cpp  -  CTTrainer Entry Point
 //  ImGui + DirectX11 + Win32
 //
 //  BUILD REQUIREMENTS (Visual Studio):
@@ -12,15 +12,19 @@
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+
+#include "CheatManager.h"
+#include "UI.h"
+#include "Theme.h"
+#include "Logger.h"
+
 #include <d3d11.h>
-#include <Windows.h>
 #include <dwmapi.h>
-#pragma comment(lib, "dwmapi.lib")
-#include "../include/CheatManager.h"
-#include "../include/UI.h"
-#include "../include/Theme.h"
+#include <Windows.h>
+#include <windowsx.h>   // GET_X_LPARAM / GET_Y_LPARAM
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "dxgi.lib")
 
 // ── D3D globals (non-static so UI.cpp can reach them) ────────
@@ -106,11 +110,50 @@ void RebuildFontAtlas()
 extern IMGUI_IMPL_API LRESULT
 ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
+static constexpr int RESIZE_BORDER = 7; // px - how thick the grab zone is
+static constexpr int MIN_WIDTH     = 560; // minimum resizable width
+static constexpr int MIN_HEIGHT    = 420; // minimum resizable height
+
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
     switch (msg)
     {
+    case WM_NCHITTEST:
+    {
+        // Let DefWindowProc do the default test first
+        LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
+        if (hit != HTCLIENT) return hit; // already a frame/caption area
+
+        // Map cursor to window-relative coords
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        RECT  rc;
+        GetWindowRect(hWnd, &rc);
+
+        const bool onLeft   = pt.x < rc.left   + RESIZE_BORDER;
+        const bool onRight  = pt.x > rc.right   - RESIZE_BORDER;
+        const bool onTop    = pt.y < rc.top     + RESIZE_BORDER;
+        const bool onBottom = pt.y > rc.bottom  - RESIZE_BORDER;
+
+        if (onLeft  && onTop)    return HTTOPLEFT;
+        if (onRight && onTop)    return HTTOPRIGHT;
+        if (onLeft  && onBottom) return HTBOTTOMLEFT;
+        if (onRight && onBottom) return HTBOTTOMRIGHT;
+        if (onLeft)              return HTLEFT;
+        if (onRight)             return HTRIGHT;
+        if (onTop)               return HTTOP;
+        if (onBottom)            return HTBOTTOM;
+
+        return HTCLIENT;
+    }
+    case WM_GETMINMAXINFO:
+    {
+        // Enforce minimum window size so the UI never becomes unusable
+        MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+        mmi->ptMinTrackSize.x = MIN_WIDTH;
+        mmi->ptMinTrackSize.y = MIN_HEIGHT;
+        return 0;
+    }
     case WM_SIZE:
         if (g_device && wParam != SIZE_MINIMIZED)
         {
@@ -163,7 +206,7 @@ static void LoadSystemFonts(ImGuiIO& io)
 }
 
 // ── WinMain ──────────────────────────────────────────────────
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
+int WINAPI WinMain (_In_ HINSTANCE hInstance,_In_opt_ HINSTANCE hPrevInstance,_In_ LPSTR lpCmdLine,_In_ int nShowCmd)
 {
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0,
                        hInstance, nullptr, nullptr, nullptr, nullptr,
@@ -212,6 +255,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     ImGui_ImplWin32_Init(g_hWnd);
     ImGui_ImplDX11_Init(g_device, g_ctx);
 
+    LOG_INFO("CTTrainer started  -  v1.0");
+    LOG_INFO("Build: " + std::string(__DATE__) + "  " + __TIME__);
+
     // ── Cheat Manager ─────────────────────────────────────
     CheatManager mgr;
 
@@ -241,6 +287,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     }
 
     mgr.StopAll();
+    LOG_INFO("CTTrainer shutting down");
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

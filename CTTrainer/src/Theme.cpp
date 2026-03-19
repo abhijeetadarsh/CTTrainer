@@ -7,7 +7,7 @@
 //  MILITARY OPS        -- dark olive + amber + khaki
 //  NEON NOIR           -- charcoal + toxic green + purple
 // ============================================================
-#include "../include/Theme.h"
+#include "Theme.h"
 
 // Helper: build RGBA from 0-255 values
 static ImVec4 C(int r, int g, int b, int a = 255)

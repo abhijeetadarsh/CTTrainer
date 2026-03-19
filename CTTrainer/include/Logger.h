@@ -11,6 +11,7 @@ enum class LogLevel { INFO, WARN, ERR, DEBUG };
 struct LogEntry
 {
     LogLevel    level;
+    std::string timestamp; // HH:MM:SS
     std::string message;
 };
 

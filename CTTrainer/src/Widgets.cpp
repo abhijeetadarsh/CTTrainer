@@ -2,7 +2,8 @@
 //  Widgets.cpp  --  Custom widget implementations
 // ============================================================
 #define IMGUI_DEFINE_MATH_OPERATORS   // enables ImVec2 +, -, *, / operators
-#include "../include/Widgets.h"
+#include "Widgets.h"
+
 #include <unordered_map>
 #include <cstring>
 #include <cmath>

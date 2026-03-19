@@ -1,8 +1,9 @@
 // ============================================================
 //  Memory.cpp  –  Part of CTTrainer
 // ============================================================
-#include "../include/Memory.h"
-#include "../include/Logger.h"
+#include "Memory.h"
+#include "Logger.h"
+
 #include <sstream>
 
 // Helper: format uintptr_t as hex string

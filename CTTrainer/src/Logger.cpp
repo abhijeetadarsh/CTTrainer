@@ -1,7 +1,8 @@
 // ============================================================
 //  Logger.cpp
 // ============================================================
-#include "../include/Logger.h"
+#include "Logger.h"
+
 #include <cstdio>
 #include <ctime>
 #include <Windows.h>
@@ -33,7 +34,15 @@ Logger::Logger()
         FILE* f = nullptr;
         fopen_s(&f, path, "w");
         m_file = f;
-        if (f) fprintf(f, "=== CTTrainer Debug Log ===\n\n");
+        if (f)
+        {
+            time_t now = time(nullptr);
+            tm  lt = {};
+            localtime_s(&lt, &now);
+            char dateBuf[64];
+            strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d %H:%M:%S", &lt);
+            fprintf(f, "=== CTTrainer Debug Log  [started %s] ===\n\n", dateBuf);
+        }
     }
 }
 
@@ -50,19 +59,30 @@ Logger& Logger::Get()
 
 void Logger::Log(LogLevel level, const std::string& msg)
 {
+    // Capture timestamp before taking the lock
+    time_t now = time(nullptr);
+    tm lt = {};
+    localtime_s(&lt, &now);
+    char tsBuf[16];
+    snprintf(tsBuf, sizeof(tsBuf), "%02d:%02d:%02d",
+        lt.tm_hour, lt.tm_min, lt.tm_sec);
+
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    LogEntry e{ level, msg };
+    LogEntry e;
+    e.level     = level;
+    e.timestamp = tsBuf;
+    e.message   = msg;
     m_entries.push_back(e);
 
     // Keep last 500 lines in memory
     if (m_entries.size() > 500)
         m_entries.erase(m_entries.begin());
 
-    // Write to file
+    // Write to file with timestamp
     if (m_file)
     {
-        fprintf((FILE*)m_file, "%s%s\n", LevelStr(level), msg.c_str());
+        fprintf((FILE*)m_file, "%s %s%s\n", tsBuf, LevelStr(level), msg.c_str());
         fflush((FILE*)m_file);
     }
 }

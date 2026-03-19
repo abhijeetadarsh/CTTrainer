@@ -1,14 +1,17 @@
 // ============================================================
 //  UI.cpp  --  CTTrainer  (sidebar + tabbed layout matching index.html)
 // ============================================================
-#include "../include/UI.h"
-#include "../include/Widgets.h"
-#include "../include/CTParser.h"
-#include "../include/Memory.h"
-#include "../include/Logger.h"
-#include "../include/Theme.h"
+
 #include "imgui.h"
 #include "imgui_internal.h"
+
+#include "UI.h"
+#include "Widgets.h"
+#include "CTParser.h"
+#include "Memory.h"
+#include "Logger.h"
+#include "Theme.h"
+
 #include <Windows.h>
 #include <string>
 #include <vector>
@@ -542,30 +545,54 @@ static void RenderTrainerPanel(CheatManager& mgr, float panelX, float panelY, fl
         dl->AddLine(ImVec2(ix - 3.f, iy), ImVec2(ix + 3.f, iy), Anim::ColorU32(p.textDisabled), 1.5f);
         dl->AddLine(ImVec2(ix, iy - 3.f), ImVec2(ix, iy + 3.f), Anim::ColorU32(p.textDisabled), 1.5f);
 
-        // Process input
-        ImGui::SetCursorScreenPos(ImVec2(rp.x + 30.f, rp.y + 8.f));
-        TextInput::Draw("##proc", s_processName, sizeof(s_processName),
-            w * 0.3f, "Process name...", p.textSecondary);
+        // ── Layout right-to-left ──────────────────────────────
+        // Fixed widths for right-side elements
+        const float attBtnW  = 70.f;   // "Attach" button width
+        const float pad      = 10.f;   // padding either side of dividers
+        const float toggleW  = 34.f;   // DrawToggleSwitch width
+        const float labelW   = 44.f;   // "32-bit" text width (approx)
+        // Section widths:
+        //   [pad | Attach btn | pad] = pad + attBtnW + pad
+        //   [div2]
+        //   [pad | label | toggle | pad] = pad + labelW + toggleW + pad  (was 100.f, now exact)
+        //   [div1]
+        //   [process input fills remaining]
 
-        // Divider
-        float divX = rp.x + 30.f + w * 0.3f + 10.f;
-        dl->AddLine(ImVec2(divX, rp.y + 10.f), ImVec2(divX, rp.y + rh - 10.f),
+        float rowRight = rp.x + w;                          // right edge of row
+        float attRight = rowRight - pad;                     // right edge of Attach btn
+        float attLeft  = attRight - attBtnW;                 // left  edge of Attach btn
+        float div2X    = attLeft  - pad;                     // divider 2
+        float tglRight = div2X    - pad;                     // right edge of toggle
+        float tglLeft  = tglRight - toggleW;                 // left  edge of toggle
+        float lblLeft  = tglLeft  - 4.f - labelW;           // left  edge of "32-bit" label
+        float div1X    = lblLeft  - pad;                     // divider 1
+
+        // Process input - fills everything from icon to div1
+        float inputLeft = rp.x + 30.f;
+        float inputW    = div1X - inputLeft - pad;
+        ImGui::SetCursorScreenPos(ImVec2(inputLeft, rp.y + 8.f));
+        TextInput::Draw("##proc", s_processName, sizeof(s_processName),
+            inputW, "Process name...", p.textSecondary);
+
+        // Divider 1
+        dl->AddLine(ImVec2(div1X, rp.y + 10.f), ImVec2(div1X, rp.y + rh - 10.f),
             Anim::ColorU32(p.border), 1.f);
 
-        // 32-bit toggle label + switch
+        // "32-bit" label
         float lblY = rp.y + (rh - ImGui::GetTextLineHeight()) * 0.5f;
-        dl->AddText(ImVec2(divX + 10.f, lblY), Anim::ColorU32(p.textDisabled), "32-bit");
-        ImGui::SetCursorScreenPos(ImVec2(divX + 55.f, rp.y + (rh - 18.f) * 0.5f));
+        dl->AddText(ImVec2(lblLeft, lblY), Anim::ColorU32(p.textDisabled), "32-bit");
+
+        // Toggle switch
+        ImGui::SetCursorScreenPos(ImVec2(tglLeft, rp.y + (rh - 18.f) * 0.5f));
         DrawToggleSwitch("##bittgl", &s_is32Bit);
 
         // Divider 2
-        float div2X = divX + 100.f;
         dl->AddLine(ImVec2(div2X, rp.y + 10.f), ImVec2(div2X, rp.y + rh - 10.f),
             Anim::ColorU32(p.border), 1.f);
 
-        // Attach button
-        ImGui::SetCursorScreenPos(ImVec2(div2X + 10.f, rp.y + (rh - 28.f) * 0.5f));
-        if (GlowButton::Draw("##att", "Attach", ImVec2(70, 28),
+        // Attach button - right-aligned
+        ImGui::SetCursorScreenPos(ImVec2(attLeft, rp.y + (rh - 28.f) * 0.5f));
+        if (GlowButton::Draw("##att", "Attach", ImVec2(attBtnW, 28),
             p.btnAction, p.btnActionHov, p.accent, 6.f))
         {
             mgr.StopAll();
@@ -959,6 +986,19 @@ static void RenderSettingsPanel(float panelX, float panelY, float panelW, float 
 }
 
 // ── Log Panel ─────────────────────────────────────────────────
+// Drop-in replacement for RenderLogPanel in UI.cpp
+// Paste this over the existing RenderLogPanel function.
+// Requires no new includes - Logger.h is already included.
+//
+// Features added:
+//   • Level filter pills  (ALL / INFO / WARN / ERR / DBG)
+//   • Entry count badge next to the active filter
+//   • Clear button
+//   • Copy-All button  (copies every visible line to clipboard)
+//   • Auto-scroll toggle
+//   • Coloured left-edge bar per log level
+// =============================================================
+
 static void RenderLogPanel(float panelX, float panelY, float panelW, float panelH)
 {
     const ThemePalette& p = ThemeManager::Get().Palette();
@@ -967,45 +1007,238 @@ static void RenderLogPanel(float panelX, float panelY, float panelW, float panel
     ImGui::SetNextWindowSize(ImVec2(panelW, panelH));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, p.bg);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.f, 16.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.f, 14.f));
     ImGui::Begin("##logpanel", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoMove    | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoBringToFrontOnFocus);
-    ImGui::PopStyleColor(); ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    float w = ImGui::GetContentRegionAvail().x;
+    ImDrawList* dl  = ImGui::GetWindowDrawList();
+    float        w  = ImGui::GetContentRegionAvail().x;
 
-    // Log area with bordered background
+    // ── persistent filter state ───────────────────────────────
+    // -1 = ALL, 0=INFO, 1=WARN, 2=ERR, 3=DBG
+    static int  s_logFilter    = -1;
+    // s_autoScroll is already declared as a static in UI.cpp,
+    // so we just use it directly - no re-declaration needed.
+
+    // ── fetch all entries once ────────────────────────────────
+    auto allEntries = Logger::Get().GetEntries();
+    static int s_lastLogCount = 0;
+    bool newEntries = ((int)allEntries.size() > s_lastLogCount);
+    s_lastLogCount = (int)allEntries.size();
+
+    // ── TOOLBAR ───────────────────────────────────────────────
+    const float TOOLBAR_H = 30.f;
+    ImVec2 tbPos = ImGui::GetCursorScreenPos();
+
+    // Background strip for toolbar
+    dl->AddRectFilled(tbPos,
+        ImVec2(tbPos.x + w, tbPos.y + TOOLBAR_H),
+        Anim::ColorU32(p.bgDeep));
+    dl->AddLine(ImVec2(tbPos.x, tbPos.y + TOOLBAR_H),
+        ImVec2(tbPos.x + w, tbPos.y + TOOLBAR_H),
+        Anim::ColorU32(p.border), 1.f);
+
+    // Helper: draw a small pill-shaped filter button
+    // Returns true if clicked.
+    auto FilterPill = [&](const char* id, const char* label,
+                          int filterVal, ImVec4 activeCol) -> bool
+    {
+        bool active = (s_logFilter == filterVal);
+        ImGui::SetCursorScreenPos(ImGui::GetCursorScreenPos()); // no-op, keeps cursor
+        ImVec2 ts = ImGui::CalcTextSize(label);
+        float bw = ts.x + 16.f, bh = 20.f;
+
+        ImGui::InvisibleButton(id, ImVec2(bw, bh));
+        bool hov     = ImGui::IsItemHovered();
+        bool clicked = ImGui::IsItemClicked();
+        ImVec2 bMin  = ImGui::GetItemRectMin();
+        ImVec2 bMax  = ImGui::GetItemRectMax();
+
+        ImGuiID wid = ImGui::GetID(id);
+        float   t   = Anim::Towards(wid, (hov || active) ? 1.f : 0.f, 8.f);
+
+        if (active)
+        {
+            dl->AddRectFilled(bMin, bMax,
+                Anim::ColorU32(ImVec4(activeCol.x, activeCol.y,
+                    activeCol.z, 0.25f)), 4.f);
+            dl->AddRect(bMin, bMax,
+                Anim::ColorU32(ImVec4(activeCol.x, activeCol.y,
+                    activeCol.z, 0.8f)), 4.f, 0, 1.f);
+        }
+        else if (t > 0.01f)
+        {
+            dl->AddRectFilled(bMin, bMax,
+                Anim::ColorU32(ImVec4(p.border.x, p.border.y,
+                    p.border.z, 0.15f * t)), 4.f);
+            dl->AddRect(bMin, bMax,
+                Anim::ColorU32(ImVec4(p.border.x, p.border.y,
+                    p.border.z, 0.4f * t)), 4.f, 0, 1.f);
+        }
+
+        ImVec4 tc = active ? activeCol
+            : Anim::LerpColor(p.textDisabled, p.textSecondary, t);
+        ImVec2 tp2(bMin.x + (bw - ts.x) * 0.5f,
+                   bMin.y + (bh - ts.y) * 0.5f);
+        dl->AddText(tp2, Anim::ColorU32(tc), label);
+
+        return clicked;
+    };
+
+    // Position toolbar items vertically centred in the strip
+    ImGui::SetCursorScreenPos(ImVec2(tbPos.x, tbPos.y + (TOOLBAR_H - 20.f) * 0.5f));
+
+    // Count per level for badges
+    int cntAll  = (int)allEntries.size();
+    int cntInfo = 0, cntWarn = 0, cntErr = 0, cntDbg = 0;
+    for (auto& e : allEntries) {
+        if (e.level == LogLevel::INFO)       ++cntInfo;
+        else if (e.level == LogLevel::WARN)  ++cntWarn;
+        else if (e.level == LogLevel::ERR)   ++cntErr;
+        else if (e.level == LogLevel::DEBUG) ++cntDbg;
+    }
+
+    // Build labelled filter pill strings with counts
+    char lblAll[32], lblInfo[32], lblWarn[32], lblErr[32], lblDbg[32];
+    snprintf(lblAll,  sizeof(lblAll),  "ALL %d",  cntAll);
+    snprintf(lblInfo, sizeof(lblInfo), "INFO %d",  cntInfo);
+    snprintf(lblWarn, sizeof(lblWarn), "WARN %d",  cntWarn);
+    snprintf(lblErr,  sizeof(lblErr),  "ERR %d",   cntErr);
+    snprintf(lblDbg,  sizeof(lblDbg),  "DBG %d",   cntDbg);
+
+    if (FilterPill("##fall",  lblAll,  -1, p.textSecondary)) s_logFilter = -1;
+    ImGui::SameLine(0, 4);
+    if (FilterPill("##finfo", lblInfo,  0, p.textSecondary)) s_logFilter = 0;
+    ImGui::SameLine(0, 4);
+    if (FilterPill("##fwarn", lblWarn,  1, p.warn))          s_logFilter = 1;
+    ImGui::SameLine(0, 4);
+    if (FilterPill("##ferr",  lblErr,   2, p.bad))           s_logFilter = 2;
+    ImGui::SameLine(0, 4);
+    if (FilterPill("##fdbg",  lblDbg,   3, p.textDisabled))  s_logFilter = 3;
+
+    // Right-side controls: Auto-scroll toggle, Clear, Copy
+    const float BTN_W = 58.f, BTN_H = 20.f, BTN_GAP = 6.f;
+    float rightEdge = tbPos.x + w;
+    float btnY      = tbPos.y + (TOOLBAR_H - BTN_H) * 0.5f;
+
+    // Copy button
+    float copyX = rightEdge - BTN_W;
+    ImGui::SetCursorScreenPos(ImVec2(copyX, btnY));
+    if (GhostButton::Draw("##logcopy", "Copy All", ImVec2(BTN_W, BTN_H),
+        p.textSecondary, Dim(p.accent, 0.10f), 4.f))
+    {
+        // Build visible lines into a string and put on clipboard
+        std::string clip;
+        for (auto& e : allEntries)
+        {
+            if (s_logFilter != -1 && (int)e.level != s_logFilter) continue;
+            const char* pfx = "";
+            switch (e.level) {
+            case LogLevel::ERR:   pfx = "[ERR]  "; break;
+            case LogLevel::WARN:  pfx = "[WARN] "; break;
+            case LogLevel::DEBUG: pfx = "[DBG]  "; break;
+            default:              pfx = "[INFO] "; break;
+            }
+            clip += pfx;
+            clip += e.message;
+            clip += "\n";
+        }
+        ImGui::SetClipboardText(clip.c_str());
+        UI::SetStatus("Log copied to clipboard.");
+    }
+
+    // Clear button
+    float clearX = copyX - BTN_W - BTN_GAP;
+    ImGui::SetCursorScreenPos(ImVec2(clearX, btnY));
+    if (GhostButton::Draw("##logclear", "Clear", ImVec2(BTN_W, BTN_H),
+        p.bad, Dim(p.bad, 0.12f), 4.f))
+    {
+        Logger::Get().Clear();
+        UI::SetStatus("Log cleared.");
+    }
+
+    // Auto-scroll pill
+    float scrollX = clearX - BTN_W - BTN_GAP;
+    ImGui::SetCursorScreenPos(ImVec2(scrollX, btnY));
+    {
+        bool hov = false;
+        ImGui::InvisibleButton("##logscrolltgl", ImVec2(BTN_W, BTN_H));
+        hov             = ImGui::IsItemHovered();
+        bool clicked    = ImGui::IsItemClicked();
+        if (clicked) s_autoScroll = !s_autoScroll;
+
+        ImVec2 bMin = ImGui::GetItemRectMin(), bMax = ImGui::GetItemRectMax();
+        ImGuiID wid = ImGui::GetID("##logscrolltgl");
+        float   t   = Anim::Towards(wid, (hov || s_autoScroll) ? 1.f : 0.f, 8.f);
+        ImVec4  col = s_autoScroll ? p.accent : p.textDisabled;
+
+        dl->AddRectFilled(bMin, bMax,
+            Anim::ColorU32(ImVec4(col.x, col.y, col.z,
+                s_autoScroll ? 0.2f : 0.05f)), 4.f);
+        dl->AddRect(bMin, bMax,
+            Anim::ColorU32(ImVec4(col.x, col.y, col.z,
+                s_autoScroll ? 0.7f : 0.3f)), 4.f, 0, 1.f);
+
+        const char* lbl = s_autoScroll ? "Scroll ON" : "Scroll OFF";
+        ImVec2 ts = ImGui::CalcTextSize(lbl);
+        dl->AddText(ImVec2(bMin.x + (BTN_W - ts.x) * 0.5f,
+                           bMin.y + (BTN_H - ts.y) * 0.5f),
+            Anim::ColorU32(col), lbl);
+    }
+
+    // Advance cursor past toolbar
+    ImGui::SetCursorScreenPos(ImVec2(tbPos.x, tbPos.y + TOOLBAR_H + 6.f));
+
+    // ── LOG SCROLL AREA ───────────────────────────────────────
     ImVec2 lp = ImGui::GetCursorScreenPos();
-    float lh = panelH - 32.f;
+    float  lh = panelH - TOOLBAR_H - 6.f - 32.f;
     if (lh < 40.f) lh = 40.f;
+
     BeginBorderedRow(dl, lp, w, lh);
 
-    ImGui::SetCursorScreenPos(ImVec2(lp.x + 14.f, lp.y + 10.f));
-    ImGui::BeginChild("##logscroll", ImVec2(w - 28.f, lh - 20.f), false);
+    ImGui::SetCursorScreenPos(ImVec2(lp.x + 14.f, lp.y + 8.f));
+    ImGui::BeginChild("##logscroll", ImVec2(w - 28.f, lh - 16.f), false,
+        ImGuiWindowFlags_HorizontalScrollbar);
 
-    auto entries = Logger::Get().GetEntries();
-    for (int i = 0; i < (int)entries.size(); ++i)
+    for (int i = 0; i < (int)allEntries.size(); ++i)
     {
-        const auto& e = entries[i];
-        ImVec4 col; const char* pfx = "";
+        const auto& e = allEntries[i];
+
+        // Apply level filter
+        if (s_logFilter != -1 && (int)e.level != s_logFilter)
+            continue;
+
+        ImVec4      col; const char* pfx = "";
         switch (e.level) {
-        case LogLevel::ERR:   col = p.bad;          pfx = "[ERR]  "; break;
-        case LogLevel::WARN:  col = p.warn;         pfx = "[WARN] "; break;
-        case LogLevel::DEBUG: col = p.textDisabled; pfx = "[DBG]  "; break;
+        case LogLevel::ERR:   col = p.bad;           pfx = "[ERR]  "; break;
+        case LogLevel::WARN:  col = p.warn;          pfx = "[WARN] "; break;
+        case LogLevel::DEBUG: col = p.textDisabled;  pfx = "[DBG]  "; break;
         default:              col = p.textSecondary; pfx = "[INFO] "; break;
         }
-        std::string line = std::string(pfx) + e.message;
+
+        // Coloured left bar per level
+        ImVec2 linePos = ImGui::GetCursorScreenPos();
+        float  lineH   = ImGui::GetTextLineHeight() + 2.f;
+        dl->AddRectFilled(
+            ImVec2(linePos.x - 10.f, linePos.y),
+            ImVec2(linePos.x - 7.f,  linePos.y + lineH),
+            Anim::ColorU32(ImVec4(col.x, col.y, col.z, 0.55f)));
+
+        std::string line = e.timestamp + " " + pfx + e.message;
         ImGui::PushStyleColor(ImGuiCol_Text, col);
         ImGui::TextUnformatted(line.c_str());
         ImGui::PopStyleColor();
     }
-    if (s_autoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.f)
-        ImGui::SetScrollHereY(1.f);
-    ImGui::EndChild();
 
+    // Auto-scroll: snap when new entries arrive OR already near the bottom
+    if (s_autoScroll && (newEntries || ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.f))
+        ImGui::SetScrollHereY(1.f);
+
+    ImGui::EndChild();
     ImGui::End();
 }
 
